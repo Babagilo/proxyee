@@ -1,15 +1,14 @@
 package com.github.monkeywie.proxyee;
 
-import com.github.monkeywie.proxyee.server.HttpProxyServer;
-import com.github.monkeywie.proxyee.server.HttpProxyServerConfig;
+import com.github.babagilo.proxy.BabagiloProxy;
+import com.github.babagilo.proxy.BabagiloProxyConfig;
 
 public class HandelSslHttpProxyServer {
 
   public static void main(String[] args) throws Exception {
-    HttpProxyServerConfig config =  new HttpProxyServerConfig();
+    BabagiloProxyConfig config =  new BabagiloProxyConfig();
+    config.setPort(9999);
     config.setHandleSsl(true);
-    new HttpProxyServer()
-        .serverConfig(config)
-        .start(9999);
+    new BabagiloProxy(config).run();
   }
 }

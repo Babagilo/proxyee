@@ -1,12 +1,13 @@
 package com.github.monkeywie.proxyee;
 
+import com.github.babagilo.proxy.BabagiloProxy;
+import com.github.babagilo.proxy.BabagiloProxyConfig;
 import com.github.monkeywie.proxyee.exception.HttpProxyExceptionHandle;
 import com.github.monkeywie.proxyee.intercept.HttpProxyIntercept;
 import com.github.monkeywie.proxyee.intercept.HttpProxyInterceptInitializer;
 import com.github.monkeywie.proxyee.intercept.HttpProxyInterceptPipeline;
 import com.github.monkeywie.proxyee.intercept.common.CertDownIntercept;
-import com.github.monkeywie.proxyee.server.HttpProxyServer;
-import com.github.monkeywie.proxyee.server.HttpProxyServerConfig;
+
 import io.netty.channel.Channel;
 import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.codec.http.HttpResponse;
@@ -14,10 +15,11 @@ import io.netty.handler.codec.http.HttpResponse;
 public class InterceptHttpProxyServer {
 
   public static void main(String[] args) throws Exception {
-    HttpProxyServerConfig config =  new HttpProxyServerConfig();
+    com.github.babagilo.proxy.BabagiloProxyConfig config =  new BabagiloProxyConfig();
+    config.setPort(9999);
     config.setHandleSsl(true);
-    new HttpProxyServer()
-        .serverConfig(config)
+    
+    new BabagiloProxy(config)
 //        .proxyConfig(new ProxyConfig(ProxyType.SOCKS5, "127.0.0.1", 1085))  //使用socks5二级代理
         .proxyInterceptInitializer(new HttpProxyInterceptInitializer() {
           @Override
@@ -58,6 +60,6 @@ public class InterceptHttpProxyServer {
             cause.printStackTrace();
           }
         })
-        .start(9999);
+        .run();
   }
 }

@@ -1,10 +1,11 @@
 package com.github.monkeywie.proxyee;
 
+import com.github.babagilo.proxy.BabagiloProxy;
+import com.github.babagilo.proxy.BabagiloProxyConfig;
 import com.github.monkeywie.proxyee.intercept.HttpProxyInterceptInitializer;
 import com.github.monkeywie.proxyee.intercept.HttpProxyInterceptPipeline;
 import com.github.monkeywie.proxyee.intercept.common.FullResponseIntercept;
-import com.github.monkeywie.proxyee.server.HttpProxyServer;
-import com.github.monkeywie.proxyee.server.HttpProxyServerConfig;
+
 import com.github.monkeywie.proxyee.util.HttpUtil;
 import io.netty.handler.codec.http.FullHttpResponse;
 import io.netty.handler.codec.http.HttpRequest;
@@ -14,10 +15,10 @@ import java.nio.charset.Charset;
 public class InterceptResponseContentHttpProxyServer {
 
   public static void main(String[] args) throws Exception {
-    HttpProxyServerConfig config =  new HttpProxyServerConfig();
+    BabagiloProxyConfig config =  new BabagiloProxyConfig();
+    config.setPort(9999);
     config.setHandleSsl(true);
-    new HttpProxyServer()
-        .serverConfig(config)
+    new BabagiloProxy(config)
         .proxyInterceptInitializer(new HttpProxyInterceptInitializer() {
           @Override
           public void init(HttpProxyInterceptPipeline pipeline) {
@@ -44,6 +45,6 @@ public class InterceptResponseContentHttpProxyServer {
             });
           }
         })
-        .start(9999);
+        .run();
   }
 }

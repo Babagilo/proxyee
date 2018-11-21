@@ -1,5 +1,7 @@
 package com.github.monkeywie.proxyee.handler;
 
+import com.github.babagilo.proxy.BabagiloProxy;
+import com.github.babagilo.proxy.BabagiloProxyConfig;
 import com.github.monkeywie.proxyee.crt.CertPool;
 import com.github.monkeywie.proxyee.exception.HttpProxyExceptionHandle;
 import com.github.monkeywie.proxyee.intercept.HttpProxyIntercept;
@@ -7,8 +9,7 @@ import com.github.monkeywie.proxyee.intercept.HttpProxyInterceptInitializer;
 import com.github.monkeywie.proxyee.intercept.HttpProxyInterceptPipeline;
 import com.github.monkeywie.proxyee.proxy.ProxyConfig;
 import com.github.monkeywie.proxyee.proxy.ProxyHandleFactory;
-import com.github.monkeywie.proxyee.server.HttpProxyServer;
-import com.github.monkeywie.proxyee.server.HttpProxyServerConfig;
+
 import com.github.monkeywie.proxyee.util.ProtoUtil;
 import com.github.monkeywie.proxyee.util.ProtoUtil.RequestProto;
 import io.netty.bootstrap.Bootstrap;
@@ -39,13 +40,17 @@ import java.util.LinkedList;
 import java.util.List;
 
 public class HttpProxyServerHandle extends ChannelInboundHandlerAdapter {
+	private static final String METHOD_CONNECT = "CONNECT";
+	
+	//See https://www.cisco.com/c/en/us/support/docs/security-vpn/secure-socket-layer-ssl/116181-technote-product-00.html
+	private static final byte SSL_HANDSHAKE = 22;
 
   private ChannelFuture cf;
   private String host;
   private int port;
   private boolean isSsl = false;
   private int status = 0;
-  private HttpProxyServerConfig serverConfig;
+  private BabagiloProxyConfig serverConfig;
   private ProxyConfig proxyConfig;
   private HttpProxyInterceptInitializer interceptInitializer;
   private HttpProxyInterceptPipeline interceptPipeline;
@@ -53,7 +58,7 @@ public class HttpProxyServerHandle extends ChannelInboundHandlerAdapter {
   private List requestList;
   private boolean isConnect;
 
-  public HttpProxyServerConfig getServerConfig() {
+  public BabagiloProxyConfig getServerConfig() {
     return serverConfig;
   }
 
@@ -65,7 +70,7 @@ public class HttpProxyServerHandle extends ChannelInboundHandlerAdapter {
     return exceptionHandle;
   }
 
-  public HttpProxyServerHandle(HttpProxyServerConfig serverConfig,
+  public HttpProxyServerHandle(BabagiloProxyConfig serverConfig,
       HttpProxyInterceptInitializer interceptInitializer,
       ProxyConfig proxyConfig, HttpProxyExceptionHandle exceptionHandle) {
     this.serverConfig = serverConfig;
@@ -88,10 +93,10 @@ public class HttpProxyServerHandle extends ChannelInboundHandlerAdapter {
         status = 1;
         this.host = requestProto.getHost();
         this.port = requestProto.getPort();
-        if ("CONNECT".equalsIgnoreCase(request.method().name())) {//建立代理握手
+        if (METHOD_CONNECT.equals(request.method().name())) {//建立代理握手
           status = 2;
           HttpResponse response = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1,
-              HttpProxyServer.SUCCESS);
+              BabagiloProxy.SUCCESS);
           ctx.writeAndFlush(response);
           ctx.channel().pipeline().remove("httpCodec");
           return;
@@ -115,7 +120,7 @@ public class HttpProxyServerHandle extends ChannelInboundHandlerAdapter {
     } else { //ssl和websocket的握手处理
       if (serverConfig.isHandleSsl()) {
         ByteBuf byteBuf = (ByteBuf) msg;
-        if (byteBuf.getByte(0) == 22) {//ssl握手
+        if (byteBuf.getByte(0) == SSL_HANDSHAKE) {//ssl握手
           isSsl = true;
           int port = ((InetSocketAddress) ctx.channel().localAddress()).getPort();
           SslContext sslCtx = SslContextBuilder
@@ -165,16 +170,16 @@ public class HttpProxyServerHandle extends ChannelInboundHandlerAdapter {
       ChannelInitializer channelInitializer =
           isHttp ? new HttpProxyInitializer(channel, requestProto, proxyHandler)
               : new TunnelProxyInitializer(channel, proxyHandler);
-      Bootstrap bootstrap = new Bootstrap();
-      bootstrap.group(serverConfig.getProxyLoopGroup()) // 注册线程池
+      Bootstrap clientBootstrap = new Bootstrap();
+      clientBootstrap.group(serverConfig.getProxyLoopGroup()) // 注册线程池
           .channel(NioSocketChannel.class) // 使用NioSocketChannel来作为连接用的channel类
           .handler(channelInitializer);
       if (proxyConfig != null) {
         //代理服务器解析DNS和连接
-        bootstrap.resolver(NoopAddressResolverGroup.INSTANCE);
+        clientBootstrap.resolver(NoopAddressResolverGroup.INSTANCE);
       }
       requestList = new LinkedList();
-      cf = bootstrap.connect(host, port);
+      cf = clientBootstrap.connect(host, port);
       cf.addListener((ChannelFutureListener) future -> {
         if (future.isSuccess()) {
           future.channel().writeAndFlush(msg);

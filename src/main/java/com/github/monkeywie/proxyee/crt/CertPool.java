@@ -1,16 +1,18 @@
 package com.github.monkeywie.proxyee.crt;
 
-import com.github.monkeywie.proxyee.server.HttpProxyServerConfig;
+
 import java.security.cert.X509Certificate;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.WeakHashMap;
 
+import com.github.babagilo.proxy.BabagiloProxyConfig;
+
 public class CertPool {
 
   private static Map<Integer, Map<String, X509Certificate>> certCache = new WeakHashMap<>();
 
-  public static X509Certificate getCert(Integer port, String host, HttpProxyServerConfig serverConfig)
+  public static X509Certificate getCert(Integer port, String host, BabagiloProxyConfig serverConfig)
       throws Exception {
     X509Certificate cert = null;
     if (host != null) {
