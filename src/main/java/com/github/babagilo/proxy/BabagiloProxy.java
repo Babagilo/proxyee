@@ -141,8 +141,7 @@ public class BabagiloProxy {
       //Start the server
       ChannelFuture f = b.bind(config.getHost(), config.getPort()).sync();
       //Wait until the server socket is closed
-      System.out.format("BabagiloProxy is listening at http://%s:%d%n",
-              config.getHost(), config.getPort());
+      System.out.format("BabagiloProxy is listening at %s:%d%n", config.getHost(), config.getPort());
       f.channel().closeFuture().sync();
     } finally {
       bossGroup.shutdownGracefully();

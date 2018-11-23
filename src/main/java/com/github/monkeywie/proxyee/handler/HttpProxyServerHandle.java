@@ -1,5 +1,10 @@
 package com.github.monkeywie.proxyee.handler;
 
+import java.net.InetSocketAddress;
+import java.net.URL;
+import java.util.LinkedList;
+import java.util.List;
+
 import com.github.babagilo.proxy.BabagiloProxy;
 import com.github.babagilo.proxy.BabagiloProxyConfig;
 import com.github.monkeywie.proxyee.crt.CertPool;
@@ -9,9 +14,9 @@ import com.github.monkeywie.proxyee.intercept.HttpProxyInterceptInitializer;
 import com.github.monkeywie.proxyee.intercept.HttpProxyInterceptPipeline;
 import com.github.monkeywie.proxyee.proxy.ProxyConfig;
 import com.github.monkeywie.proxyee.proxy.ProxyHandleFactory;
-
 import com.github.monkeywie.proxyee.util.ProtoUtil;
 import com.github.monkeywie.proxyee.util.ProtoUtil.RequestProto;
+
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
@@ -27,6 +32,7 @@ import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpHeaderValues;
 import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.codec.http.HttpResponse;
+import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http.HttpServerCodec;
 import io.netty.handler.codec.http.HttpVersion;
 import io.netty.handler.proxy.ProxyHandler;
@@ -34,10 +40,6 @@ import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.resolver.NoopAddressResolverGroup;
 import io.netty.util.ReferenceCountUtil;
-import java.net.InetSocketAddress;
-import java.net.URL;
-import java.util.LinkedList;
-import java.util.List;
 
 public class HttpProxyServerHandle extends ChannelInboundHandlerAdapter {
 	private static final String METHOD_CONNECT = "CONNECT";
@@ -46,8 +48,8 @@ public class HttpProxyServerHandle extends ChannelInboundHandlerAdapter {
 	private static final byte SSL_HANDSHAKE = 22;
 
   private ChannelFuture cf;
-  private String host;
-  private int port;
+  private String origin_host;
+  private int origin_port;
   private boolean isSsl = false;
   private int status = 0;
   private BabagiloProxyConfig serverConfig;
@@ -81,6 +83,7 @@ public class HttpProxyServerHandle extends ChannelInboundHandlerAdapter {
 
   @Override
   public void channelRead(final ChannelHandlerContext ctx, final Object msg) throws Exception {
+	  
     if (msg instanceof HttpRequest) {
       HttpRequest request = (HttpRequest) msg;
       //第一次建立连接取host和端口号和处理代理握手
@@ -91,19 +94,44 @@ public class HttpProxyServerHandle extends ChannelInboundHandlerAdapter {
           return;
         }
         status = 1;
-        this.host = requestProto.getHost();
-        this.port = requestProto.getPort();
+        this.origin_host = requestProto.getHost();
+        this.origin_port = requestProto.getPort();
+        
+        /*
+         * DefaultHttpRequest(decodeResult: success, version: HTTP/1.1)
+CONNECT clients6.google.com:443 HTTP/1.1
+Host: clients6.google.com:443
+Proxy-Connection: keep-alive
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/70.0.3538.102 Safari/537.36
+
+DefaultHttpRequest(decodeResult: success, version: HTTP/1.1)
+CONNECT notifications.google.com:443 HTTP/1.1
+Host: notifications.google.com:443
+Proxy-Connection: keep-alive
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/70.0.3538.102 Safari/537.36
+Proxy-Authorization: Basic bGl5b25nOmFiY2Q=
+         */
         if (METHOD_CONNECT.equals(request.method().name())) {//建立代理握手
           status = 2;
-          HttpResponse response = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1,
-              BabagiloProxy.SUCCESS);
-          ctx.writeAndFlush(response);
-          ctx.channel().pipeline().remove("httpCodec");
+          
+          //extract proxy username and password
+          String proxy_Authorization = request.headers().get("Proxy-Authorization");
+          HttpResponse response;
+          if(isAuthenticated(proxy_Authorization)) {
+        	  response = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, BabagiloProxy.SUCCESS);
+              ctx.writeAndFlush(response);
+              ctx.channel().pipeline().remove("httpCodec");
+          }else {
+        	  //System.err.format("%s\nProxy-Authorization: %s\n",request.uri(), proxy_Authorization);
+        	  response = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, new HttpResponseStatus(407, "Authentication Required"));
+        	  response.headers().add("Proxy-Authenticate", "Basic realm=\"Access to internal site\"");
+              ctx.writeAndFlush(response);
+          }
           return;
         }
       }
       interceptPipeline = buildPipeline();
-      interceptPipeline.setRequestProto(new RequestProto(host, port, isSsl));
+      interceptPipeline.setRequestProto(new RequestProto(origin_host, origin_port, isSsl));
       //fix issues #27
       if (request.uri().indexOf("/") != 0) {
         URL url = new URL(request.uri());
@@ -118,13 +146,16 @@ public class HttpProxyServerHandle extends ChannelInboundHandlerAdapter {
         status = 1;
       }
     } else { //ssl和websocket的握手处理
+    	// class io.netty.buffer.PooledUnsafeDirectByteBuf
+    	//System.out.println("122: " + msg.getClass());
+    	
       if (serverConfig.isHandleSsl()) {
         ByteBuf byteBuf = (ByteBuf) msg;
         if (byteBuf.getByte(0) == SSL_HANDSHAKE) {//ssl握手
           isSsl = true;
           int port = ((InetSocketAddress) ctx.channel().localAddress()).getPort();
           SslContext sslCtx = SslContextBuilder
-              .forServer(serverConfig.getServerPriKey(), CertPool.getCert(port,this.host, serverConfig))
+              .forServer(serverConfig.getServerPriKey(), CertPool.getCert(port,this.origin_host, serverConfig))
               .build();
           ctx.pipeline().addFirst("httpCodec", new HttpServerCodec());
           ctx.pipeline().addFirst("sslHandle", sslCtx.newHandler(ctx.alloc()));
@@ -137,7 +168,13 @@ public class HttpProxyServerHandle extends ChannelInboundHandlerAdapter {
     }
   }
 
-  @Override
+  private static boolean isAuthenticated(String proxy_Authorization) {
+	// TODO Further coding needed
+	  // liyong/abcd
+	return "Basic bGl5b25nOmFiY2Q=".equals(proxy_Authorization);
+}
+
+@Override
   public void channelUnregistered(ChannelHandlerContext ctx) throws Exception {
     if (cf != null) {
       cf.channel().close();
@@ -166,7 +203,7 @@ public class HttpProxyServerHandle extends ChannelInboundHandlerAdapter {
         有些服务器对于client hello不带SNI扩展时会直接返回Received fatal alert: handshake_failure(握手错误)
         例如：https://cdn.mdn.mozilla.net/static/img/favicon32.7f3da72dcea1.png
        */
-      RequestProto requestProto = new RequestProto(host, port, isSsl);
+      RequestProto requestProto = new RequestProto(origin_host, origin_port, isSsl);
       ChannelInitializer channelInitializer =
           isHttp ? new HttpProxyInitializer(channel, requestProto, proxyHandler)
               : new TunnelProxyInitializer(channel, proxyHandler);
@@ -179,7 +216,7 @@ public class HttpProxyServerHandle extends ChannelInboundHandlerAdapter {
         clientBootstrap.resolver(NoopAddressResolverGroup.INSTANCE);
       }
       requestList = new LinkedList();
-      cf = clientBootstrap.connect(host, port);
+      cf = clientBootstrap.connect(origin_host, origin_port);
       cf.addListener((ChannelFutureListener) future -> {
         if (future.isSuccess()) {
           future.channel().writeAndFlush(msg);
