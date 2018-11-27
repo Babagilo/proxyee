@@ -1,10 +1,5 @@
 package com.github.babagilo.proxy;
 
-import io.netty.channel.EventLoopGroup;
-import io.netty.handler.ssl.SslContext;
-import io.netty.handler.ssl.SslContextBuilder;
-import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
-
 import java.io.IOException;
 import java.security.KeyPair;
 import java.security.NoSuchAlgorithmException;
@@ -16,17 +11,22 @@ import java.security.cert.X509Certificate;
 import java.security.spec.InvalidKeySpecException;
 import java.util.Date;
 
-import javax.net.ssl.SSLException;
-
 import com.github.monkeywie.proxyee.crt.CertUtil;
-import com.github.monkeywie.proxyee.server.HttpProxyCACertFactory;
+
+
+import io.netty.channel.EventLoopGroup;
+import io.netty.handler.ssl.SslContext;
+import io.netty.handler.ssl.SslContextBuilder;
+import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 
 public class BabagiloProxyConfig {
 	private SslContext clientSslCtx;
 	private String issuer;
 	private Date caNotBefore;
 	private Date caNotAfter;
-	private PrivateKey caPriKey;
+	
+	// CA私钥用于给动态生成的网站SSL证书签证
+	private PrivateKey ca_private_key;
 	private PrivateKey serverPriKey;
 	private PublicKey serverPubKey;
 	private EventLoopGroup proxyLoopGroup;
@@ -36,8 +36,6 @@ public class BabagiloProxyConfig {
 	private boolean manInTheMiddleMode;
 	private int port;
 	private String host;
-
-	private HttpProxyCACertFactory caCertFactory;
 
 	/**
 	 * @param port               - listening port
@@ -56,27 +54,24 @@ public class BabagiloProxyConfig {
 		setNumberOfProxyGroupThreads(1);
 		this.host = host;
 		this.port = port;
-		this.manInTheMiddleMode = manInTheMiddleMode;
+		setManInTheMiddleMode(manInTheMiddleMode);
+	}
 
+	public void setManInTheMiddleMode(boolean manInTheMiddleMode) throws CertificateException, InvalidKeySpecException, NoSuchAlgorithmException, IOException, NoSuchProviderException {
+		this.manInTheMiddleMode = manInTheMiddleMode;
 		if (manInTheMiddleMode) {
-			setClientSslCtx(SslContextBuilder.forClient().trustManager(InsecureTrustManagerFactory.INSTANCE).build());
+			this.clientSslCtx = SslContextBuilder.forClient().trustManager(InsecureTrustManagerFactory.INSTANCE)
+					.build();
 			ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
-			X509Certificate caCert;
-			PrivateKey caPriKey;
-			if (caCertFactory == null) {
-				caCert = CertUtil.loadCert(classLoader.getResourceAsStream("ca.crt"));
-				caPriKey = CertUtil.loadPriKey(classLoader.getResourceAsStream("ca_private.der"));
-			} else {
-				caCert = caCertFactory.getCACert();
-				caPriKey = caCertFactory.getCAPriKey();
-			}
+			X509Certificate caCert = CertUtil.loadCert(classLoader.getResourceAsStream("ca.crt"));
+			ca_private_key = CertUtil.loadPriKey(classLoader.getResourceAsStream("ca_private.der"));
+
 			// 读取CA证书使用者信息
 			setIssuer(CertUtil.getSubject(caCert));
 			// 读取CA证书有效时段(server证书有效期超出CA证书的，在手机上会提示证书不安全)
 			setCaNotBefore(caCert.getNotBefore());
 			setCaNotAfter(caCert.getNotAfter());
-			// CA私钥用于给动态生成的网站SSL证书签证
-			setCaPriKey(caPriKey);
+
 			// 生产一对随机公私钥用于网站SSL证书动态创建
 			KeyPair keyPair = CertUtil.genKeyPair();
 			setServerPriKey(keyPair.getPrivate());
@@ -90,22 +85,19 @@ public class BabagiloProxyConfig {
 	 * will not offload TLS traffic.
 	 *
 	 * @param port
-	 * @throws IOException 
-	 * @throws InvalidKeySpecException 
-	 * @throws CertificateException 
-	 * @throws NoSuchProviderException 
-	 * @throws NoSuchAlgorithmException 
+	 * @throws IOException
+	 * @throws InvalidKeySpecException
+	 * @throws CertificateException
+	 * @throws NoSuchProviderException
+	 * @throws NoSuchAlgorithmException
 	 */
-	public BabagiloProxyConfig(int port) throws NoSuchAlgorithmException, NoSuchProviderException, CertificateException, InvalidKeySpecException, IOException {
-			this("127.0.0.1", port, false);
+	public BabagiloProxyConfig(int port) throws NoSuchAlgorithmException, NoSuchProviderException, CertificateException,
+			InvalidKeySpecException, IOException {
+		this("127.0.0.1", port, false);
 	}
 
 	public SslContext getClientSslCtx() {
 		return clientSslCtx;
-	}
-
-	public void setClientSslCtx(SslContext clientSslCtx) {
-		this.clientSslCtx = clientSslCtx;
 	}
 
 	public String getIssuer() {
@@ -133,14 +125,10 @@ public class BabagiloProxyConfig {
 	}
 
 	public PrivateKey getCaPriKey() {
-		return caPriKey;
+		return ca_private_key;
 	}
 
-	public void setCaPriKey(PrivateKey caPriKey) {
-		this.caPriKey = caPriKey;
-	}
-
-	public PrivateKey getServerPriKey() {
+	public PrivateKey getServerPrivateKey() {
 		return serverPriKey;
 	}
 
