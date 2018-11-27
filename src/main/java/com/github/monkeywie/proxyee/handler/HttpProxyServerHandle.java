@@ -7,6 +7,7 @@ import java.util.List;
 
 import com.github.babagilo.proxy.BabagiloProxy;
 import com.github.babagilo.proxy.BabagiloProxyConfig;
+
 import com.github.monkeywie.proxyee.crt.CertPool;
 import com.github.monkeywie.proxyee.exception.HttpProxyExceptionHandle;
 import com.github.monkeywie.proxyee.intercept.HttpProxyIntercept;
@@ -85,10 +86,10 @@ public class HttpProxyServerHandle extends ChannelInboundHandlerAdapter {
   public void channelRead(final ChannelHandlerContext ctx, final Object msg) throws Exception {
 	  
     if (msg instanceof HttpRequest) {
-      HttpRequest request = (HttpRequest) msg;
+      HttpRequest httpRequest = (HttpRequest) msg;
       //第一次建立连接取host和端口号和处理代理握手
       if (status == 0) {
-        RequestProto requestProto = ProtoUtil.getRequestProto(request);
+        RequestProto requestProto = ProtoUtil.getRequestProto(httpRequest);
         if (requestProto == null) { //bad request
           ctx.channel().close();
           return;
@@ -111,19 +112,21 @@ Proxy-Connection: keep-alive
 User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/70.0.3538.102 Safari/537.36
 Proxy-Authorization: Basic bGl5b25nOmFiY2Q=
          */
-        if (METHOD_CONNECT.equals(request.method().name())) {//建立代理握手
+        if (METHOD_CONNECT.equals(httpRequest.method().name())) {//建立代理握手
           status = 2;
           
           //extract proxy username and password
-          String proxy_Authorization = request.headers().get("Proxy-Authorization");
+          String proxy_Authorization = httpRequest.headers().get("Proxy-Authorization");
           HttpResponse response;
           if(isAuthenticated(proxy_Authorization)) {
-        	  response = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, BabagiloProxy.SUCCESS);
+        	  response = new DefaultFullHttpResponse(
+        				HttpVersion.HTTP_1_1, new HttpResponseStatus(200, "Connection established"));
               ctx.writeAndFlush(response);
               ctx.channel().pipeline().remove("httpCodec");
           }else {
         	  //System.err.format("%s\nProxy-Authorization: %s\n",request.uri(), proxy_Authorization);
-        	  response = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, new HttpResponseStatus(407, "Authentication Required"));
+        	  response =  new DefaultFullHttpResponse(
+        				HttpVersion.HTTP_1_1, new HttpResponseStatus(407, "Authentication Required"));
         	  response.headers().add("Proxy-Authenticate", "Basic realm=\"Access to internal site\"");
               ctx.writeAndFlush(response);
           }
@@ -133,11 +136,11 @@ Proxy-Authorization: Basic bGl5b25nOmFiY2Q=
       interceptPipeline = buildPipeline();
       interceptPipeline.setRequestProto(new RequestProto(origin_host, origin_port, isSsl));
       //fix issues #27
-      if (request.uri().indexOf("/") != 0) {
-        URL url = new URL(request.uri());
-        request.setUri(url.getFile());
+      if (httpRequest.uri().indexOf("/") != 0) {
+        URL url = new URL(httpRequest.uri());
+        httpRequest.setUri(url.getFile());
       }
-      interceptPipeline.beforeRequest(ctx.channel(), request);
+      interceptPipeline.beforeRequest(ctx.channel(), httpRequest);
     } else if (msg instanceof HttpContent) {
       if (status != 2) {
         interceptPipeline.beforeRequest(ctx.channel(), (HttpContent) msg);
@@ -149,13 +152,13 @@ Proxy-Authorization: Basic bGl5b25nOmFiY2Q=
     	// class io.netty.buffer.PooledUnsafeDirectByteBuf
     	//System.out.println("122: " + msg.getClass());
     	
-      if (serverConfig.isHandleSsl()) {
+      if (serverConfig.isManInTheMiddleMode()) {
         ByteBuf byteBuf = (ByteBuf) msg;
-        if (byteBuf.getByte(0) == SSL_HANDSHAKE) {//ssl握手
+        if (byteBuf.getByte(0) == SSL_HANDSHAKE) {
           isSsl = true;
-          int port = ((InetSocketAddress) ctx.channel().localAddress()).getPort();
+          int proxy_port = ((InetSocketAddress) ctx.channel().localAddress()).getPort();
           SslContext sslCtx = SslContextBuilder
-              .forServer(serverConfig.getServerPriKey(), CertPool.getCert(port,this.origin_host, serverConfig))
+              .forServer(serverConfig.getServerPriKey(), CertPool.getCert(proxy_port,this.origin_host, serverConfig))
               .build();
           ctx.pipeline().addFirst("httpCodec", new HttpServerCodec());
           ctx.pipeline().addFirst("sslHandle", sslCtx.newHandler(ctx.alloc()));
@@ -276,7 +279,10 @@ Proxy-Authorization: Basic bGl5b25nOmFiY2Q=
             clientChannel.writeAndFlush(httpContent);
           }
         });
-    interceptInitializer.init(interceptPipeline);
+    if(interceptInitializer != null) {
+    	interceptInitializer.init(interceptPipeline);
+    }
+    
     return interceptPipeline;
   }
 }

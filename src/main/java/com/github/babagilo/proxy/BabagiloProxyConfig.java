@@ -2,9 +2,24 @@ package com.github.babagilo.proxy;
 
 import io.netty.channel.EventLoopGroup;
 import io.netty.handler.ssl.SslContext;
+import io.netty.handler.ssl.SslContextBuilder;
+import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
+
+import java.io.IOException;
+import java.security.KeyPair;
+import java.security.NoSuchAlgorithmException;
+import java.security.NoSuchProviderException;
 import java.security.PrivateKey;
 import java.security.PublicKey;
+import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
+import java.security.spec.InvalidKeySpecException;
 import java.util.Date;
+
+import javax.net.ssl.SSLException;
+
+import com.github.monkeywie.proxyee.crt.CertUtil;
+import com.github.monkeywie.proxyee.server.HttpProxyCACertFactory;
 
 public class BabagiloProxyConfig {
 	private SslContext clientSslCtx;
@@ -18,18 +33,71 @@ public class BabagiloProxyConfig {
 
 	private int nWorkerGroupThreads;
 	private int nProxyGroupThreads;
-	private boolean handleSsl;
+	private boolean manInTheMiddleMode;
 	private int port;
 	private String host;
 
+	private HttpProxyCACertFactory caCertFactory;
+
 	/**
-	 * Default Constructor
+	 * @param port               - listening port
+	 * @param manInTheMiddleMode - true, Proxy will offload the HTTPS requests and
+	 *                           play man-in-the-middle sniffing
+	 * @throws NoSuchProviderException
+	 * @throws NoSuchAlgorithmException
+	 * @throws CertificateException
+	 * @throws IOException
+	 * @throws InvalidKeySpecException
+	 * 
 	 */
-	public BabagiloProxyConfig() {
+	public BabagiloProxyConfig(String host, int port, boolean manInTheMiddleMode) throws NoSuchAlgorithmException,
+			NoSuchProviderException, CertificateException, InvalidKeySpecException, IOException {
 		setNumberOfWorkerGroupThreads(1);
 		setNumberOfProxyGroupThreads(1);
-		host = "127.0.0.1";
-		port = 8964;
+		this.host = host;
+		this.port = port;
+		this.manInTheMiddleMode = manInTheMiddleMode;
+
+		if (manInTheMiddleMode) {
+			setClientSslCtx(SslContextBuilder.forClient().trustManager(InsecureTrustManagerFactory.INSTANCE).build());
+			ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
+			X509Certificate caCert;
+			PrivateKey caPriKey;
+			if (caCertFactory == null) {
+				caCert = CertUtil.loadCert(classLoader.getResourceAsStream("ca.crt"));
+				caPriKey = CertUtil.loadPriKey(classLoader.getResourceAsStream("ca_private.der"));
+			} else {
+				caCert = caCertFactory.getCACert();
+				caPriKey = caCertFactory.getCAPriKey();
+			}
+			// 读取CA证书使用者信息
+			setIssuer(CertUtil.getSubject(caCert));
+			// 读取CA证书有效时段(server证书有效期超出CA证书的，在手机上会提示证书不安全)
+			setCaNotBefore(caCert.getNotBefore());
+			setCaNotAfter(caCert.getNotAfter());
+			// CA私钥用于给动态生成的网站SSL证书签证
+			setCaPriKey(caPriKey);
+			// 生产一对随机公私钥用于网站SSL证书动态创建
+			KeyPair keyPair = CertUtil.genKeyPair();
+			setServerPriKey(keyPair.getPrivate());
+			setServerPubKey(keyPair.getPublic());
+		}
+	}
+
+	/**
+	 *
+	 * Default Constructor, server will be listening on port 127.0.0.1:<port> and
+	 * will not offload TLS traffic.
+	 *
+	 * @param port
+	 * @throws IOException 
+	 * @throws InvalidKeySpecException 
+	 * @throws CertificateException 
+	 * @throws NoSuchProviderException 
+	 * @throws NoSuchAlgorithmException 
+	 */
+	public BabagiloProxyConfig(int port) throws NoSuchAlgorithmException, NoSuchProviderException, CertificateException, InvalidKeySpecException, IOException {
+			this("127.0.0.1", port, false);
 	}
 
 	public SslContext getClientSslCtx() {
@@ -96,12 +164,8 @@ public class BabagiloProxyConfig {
 		this.proxyLoopGroup = proxyLoopGroup;
 	}
 
-	public boolean isHandleSsl() {
-		return handleSsl;
-	}
-
-	public void setHandleSsl(boolean handleSsl) {
-		this.handleSsl = handleSsl;
+	public boolean isManInTheMiddleMode() {
+		return manInTheMiddleMode;
 	}
 
 	public int getNumberOfWorkerGroupThreads() {
@@ -126,10 +190,5 @@ public class BabagiloProxyConfig {
 
 	public int getPort() {
 		return port;
-	}
-
-	public void setPort(int i) {
-		port = i;
-		
 	}
 }

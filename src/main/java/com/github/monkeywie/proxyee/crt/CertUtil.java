@@ -13,6 +13,7 @@ import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
+import java.security.NoSuchProviderException;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.SecureRandom;
@@ -35,10 +36,12 @@ import org.bouncycastle.asn1.x509.BasicConstraints;
 import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.asn1.x509.GeneralName;
 import org.bouncycastle.asn1.x509.GeneralNames;
+import org.bouncycastle.cert.CertIOException;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.operator.ContentSigner;
+import org.bouncycastle.operator.OperatorCreationException;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 
 public class CertUtil {
@@ -59,8 +62,10 @@ public class CertUtil {
 
   /**
    * 生成RSA公私密钥对,长度为2048
+ * @throws NoSuchProviderException 
+ * @throws NoSuchAlgorithmException 
    */
-  public static KeyPair genKeyPair() throws Exception {
+  public static KeyPair genKeyPair() throws NoSuchAlgorithmException, NoSuchProviderException {
     KeyPairGenerator caKeyPairGen = KeyPairGenerator.getInstance("RSA", "BC");
     caKeyPairGen.initialize(2048, new SecureRandom());
     return caKeyPairGen.genKeyPair();
@@ -183,7 +188,7 @@ public class CertUtil {
   /**
    * 读取ssl证书使用者信息
    */
-  public static String getSubject(X509Certificate certificate) throws Exception {
+  public static String getSubject(X509Certificate certificate){
     //读出来顺序是反的需要反转下
     List<String> tempList = Arrays.asList(certificate.getIssuerDN().toString().split(", "));
     return IntStream.rangeClosed(0, tempList.size() - 1)
@@ -194,15 +199,18 @@ public class CertUtil {
    * 动态生成服务器证书,并进行CA签授
    *
    * @param issuer 颁发机构
+ * @throws CertIOException 
+ * @throws OperatorCreationException 
+ * @throws CertificateException 
    */
   public static X509Certificate genCert(String issuer, PrivateKey caPriKey, Date caNotBefore,
       Date caNotAfter, PublicKey serverPubKey,
-      String... hosts) throws Exception {
+      String... hosts) throws CertIOException, OperatorCreationException, CertificateException{
         /* String issuer = "C=CN, ST=GD, L=SZ, O=lee, OU=study, CN=ProxyeeRoot";
-        String subject = "C=CN, ST=GD, L=SZ, O=lee, OU=study, CN=" + host;*/
+        */
     //根据CA证书subject来动态生成目标服务器证书的issuer和subject
-    String subject = "C=CN, ST=GD, L=SZ, O=lee, OU=study, CN=" + hosts[0];
-    //doc from https://www.cryptoworkshop.com/guide/
+    String subject = "C=SG, ST=SG, L=SG, O=MOM, OU=RDI, CN=" + hosts[0];
+
     JcaX509v3CertificateBuilder jv3Builder = new JcaX509v3CertificateBuilder(new X500Name(issuer),
         //issue#3 修复ElementaryOS上证书不安全问题(serialNumber为1时证书会提示不安全)，避免serialNumber冲突，采用时间戳+4位随机数生成
         BigInteger.valueOf(System.currentTimeMillis() + (long) (Math.random() * 10000) + 1000),

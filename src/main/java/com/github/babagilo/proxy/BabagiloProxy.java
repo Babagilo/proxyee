@@ -1,8 +1,15 @@
 package com.github.babagilo.proxy;
 
+import java.io.IOException;
 import java.security.KeyPair;
+import java.security.NoSuchAlgorithmException;
+import java.security.NoSuchProviderException;
 import java.security.PrivateKey;
+import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
+import java.security.spec.InvalidKeySpecException;
+
+import javax.net.ssl.SSLException;
 
 import com.github.monkeywie.proxyee.crt.CertPool;
 import com.github.monkeywie.proxyee.crt.CertUtil;
@@ -29,11 +36,7 @@ import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 
 public class BabagiloProxy {
 
-  //http代理隧道握手成功
-  public final static HttpResponseStatus SUCCESS = new HttpResponseStatus(200,
-      "Connection established");
 
-  private HttpProxyCACertFactory caCertFactory;
   private BabagiloProxyConfig config;
   private HttpProxyInterceptInitializer proxyInterceptInitializer;
   private HttpProxyExceptionHandle httpProxyExceptionHandle;
@@ -42,45 +45,11 @@ public class BabagiloProxy {
   private EventLoopGroup bossGroup;
   private EventLoopGroup workerGroup;
 
-  private void init() {
-    if (config == null) {
-      config = new BabagiloProxyConfig();
-    }
+  private void init() throws CertificateException, InvalidKeySpecException, NoSuchAlgorithmException, IOException, NoSuchProviderException {
     config.setProxyLoopGroup(new NioEventLoopGroup(config.getNumberOfProxyGroupThreads()));
 
-    if (config.isHandleSsl()) {
-      try {
-        config.setClientSslCtx(
-            SslContextBuilder.forClient().trustManager(InsecureTrustManagerFactory.INSTANCE)
-                .build());
-        ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
-        X509Certificate caCert;
-        PrivateKey caPriKey;
-        if (caCertFactory == null) {
-          caCert = CertUtil.loadCert(classLoader.getResourceAsStream("ca.crt"));
-          caPriKey = CertUtil.loadPriKey(classLoader.getResourceAsStream("ca_private.der"));
-        } else {
-          caCert = caCertFactory.getCACert();
-          caPriKey = caCertFactory.getCAPriKey();
-        }
-        //读取CA证书使用者信息
-        config.setIssuer(CertUtil.getSubject(caCert));
-        //读取CA证书有效时段(server证书有效期超出CA证书的，在手机上会提示证书不安全)
-        config.setCaNotBefore(caCert.getNotBefore());
-        config.setCaNotAfter(caCert.getNotAfter());
-        //CA私钥用于给动态生成的网站SSL证书签证
-        config.setCaPriKey(caPriKey);
-        //生产一对随机公私钥用于网站SSL证书动态创建
-        KeyPair keyPair = CertUtil.genKeyPair();
-        config.setServerPriKey(keyPair.getPrivate());
-        config.setServerPubKey(keyPair.getPublic());
-      } catch (Exception e) {
-        config.setHandleSsl(false);
-      }
-    }
-    if (proxyInterceptInitializer == null) {
-      proxyInterceptInitializer = new HttpProxyInterceptInitializer();
-    }
+
+
     if (httpProxyExceptionHandle == null) {
       httpProxyExceptionHandle = new HttpProxyExceptionHandle();
     }
@@ -89,11 +58,11 @@ public class BabagiloProxy {
   /**
    * Configure the Server
    * 
-   * @param serverConfig
+   * @param config
    * @return
    */
-  public BabagiloProxy (BabagiloProxyConfig serverConfig) {
-    this.config = serverConfig;
+  public BabagiloProxy (BabagiloProxyConfig config) {
+    this.config = config;
   }
 
   public BabagiloProxy proxyInterceptInitializer(
@@ -113,12 +82,7 @@ public class BabagiloProxy {
     return this;
   }
 
-  public BabagiloProxy caCertFactory(HttpProxyCACertFactory caCertFactory) {
-    this.caCertFactory = caCertFactory;
-    return this;
-  }
-
-  public void run() throws InterruptedException {
+  public void run() throws InterruptedException, CertificateException, InvalidKeySpecException, NoSuchAlgorithmException, NoSuchProviderException, IOException {
     init();
     bossGroup = new NioEventLoopGroup(1);
     workerGroup = new NioEventLoopGroup(config.getNumberOfWorkerGroupThreads());

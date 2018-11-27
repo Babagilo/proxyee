@@ -15,9 +15,7 @@ import io.netty.handler.codec.http.HttpResponse;
 public class InterceptHttpProxyServer {
 
   public static void main(String[] args) throws Exception {
-    com.github.babagilo.proxy.BabagiloProxyConfig config =  new BabagiloProxyConfig();
-    config.setPort(9999);
-    config.setHandleSsl(true);
+    com.github.babagilo.proxy.BabagiloProxyConfig config =  new BabagiloProxyConfig("localhost", 9999,true);
     
     new BabagiloProxy(config)
 //        .proxyConfig(new ProxyConfig(ProxyType.SOCKS5, "127.0.0.1", 1085))  //使用socks5二级代理

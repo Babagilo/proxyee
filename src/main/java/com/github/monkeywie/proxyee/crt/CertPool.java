@@ -1,10 +1,14 @@
 package com.github.monkeywie.proxyee.crt;
 
 
+import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.WeakHashMap;
+
+import org.bouncycastle.cert.CertIOException;
+import org.bouncycastle.operator.OperatorCreationException;
 
 import com.github.babagilo.proxy.BabagiloProxyConfig;
 
@@ -12,8 +16,8 @@ public class CertPool {
 
   private static Map<Integer, Map<String, X509Certificate>> certCache = new WeakHashMap<>();
 
-  public static X509Certificate getCert(Integer port, String host, BabagiloProxyConfig serverConfig)
-      throws Exception {
+  public static X509Certificate getCert(Integer port, String host, BabagiloProxyConfig serverConfig) throws CertIOException, OperatorCreationException, CertificateException
+      {
     X509Certificate cert = null;
     if (host != null) {
       Map<String, X509Certificate> portCertCache = certCache.get(port);

@@ -5,7 +5,7 @@ import java.security.cert.X509Certificate;
 
 public interface HttpProxyCACertFactory {
 
-  X509Certificate getCACert() throws Exception;
+  X509Certificate getCACert();
 
-  PrivateKey getCAPriKey() throws Exception;
+  PrivateKey getCAPriKey();
 }

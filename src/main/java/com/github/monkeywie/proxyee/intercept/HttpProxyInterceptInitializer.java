@@ -1,5 +1,5 @@
 package com.github.monkeywie.proxyee.intercept;
 
-public class HttpProxyInterceptInitializer {
-  public void init(HttpProxyInterceptPipeline pipeline){}
+public interface HttpProxyInterceptInitializer {
+  public void init(HttpProxyInterceptPipeline pipeline);
 }
