@@ -8,6 +8,7 @@ import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.handler.codec.http.HttpContent;
 import io.netty.handler.codec.http.HttpResponse;
 import io.netty.util.ReferenceCountUtil;
+import com.github.babagilo.proxy.BabagiloProxyHandler;
 
 public class HttpProxyClientHandle extends ChannelInboundHandlerAdapter {
 
@@ -24,7 +25,7 @@ public class HttpProxyClientHandle extends ChannelInboundHandlerAdapter {
       ReferenceCountUtil.release(msg);
       return;
     }
-    HttpProxyInterceptPipeline interceptPipeline = ((HttpProxyServerHandle) clientChannel.pipeline()
+    HttpProxyInterceptPipeline interceptPipeline = ((BabagiloProxyHandler) clientChannel.pipeline()
         .get("serverHandle")).getInterceptPipeline();
     if (msg instanceof HttpResponse) {
       interceptPipeline.afterResponse(clientChannel, ctx.channel(), (HttpResponse) msg);
@@ -45,7 +46,7 @@ public class HttpProxyClientHandle extends ChannelInboundHandlerAdapter {
   public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
     ctx.channel().close();
     clientChannel.close();
-    HttpProxyExceptionHandle exceptionHandle = ((HttpProxyServerHandle) clientChannel.pipeline()
+    HttpProxyExceptionHandle exceptionHandle = ((BabagiloProxyHandler) clientChannel.pipeline()
         .get("serverHandle")).getExceptionHandle();
     exceptionHandle.afterCatch(clientChannel, ctx.channel(), cause);
   }

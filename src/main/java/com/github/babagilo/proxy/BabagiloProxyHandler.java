@@ -1,13 +1,17 @@
-package com.github.monkeywie.proxyee.handler;
+package com.github.babagilo.proxy;
 
 import java.net.InetSocketAddress;
 import java.net.URL;
+import java.security.PrivateKey;
+import java.security.PublicKey;
+import java.util.Date;
 import java.util.LinkedList;
 import java.util.List;
 
-import com.github.babagilo.proxy.BabagiloProxyConfig;
 import com.github.monkeywie.proxyee.crt.CertPool;
 import com.github.monkeywie.proxyee.exception.HttpProxyExceptionHandle;
+import com.github.monkeywie.proxyee.handler.HttpProxyInitializer;
+import com.github.monkeywie.proxyee.handler.TunnelProxyInitializer;
 import com.github.monkeywie.proxyee.intercept.HttpProxyIntercept;
 import com.github.monkeywie.proxyee.intercept.HttpProxyInterceptInitializer;
 import com.github.monkeywie.proxyee.intercept.HttpProxyInterceptPipeline;
@@ -24,6 +28,7 @@ import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
+import io.netty.channel.EventLoopGroup;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.http.DefaultFullHttpResponse;
 import io.netty.handler.codec.http.HttpContent;
@@ -41,18 +46,18 @@ import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.resolver.NoopAddressResolverGroup;
 import io.netty.util.ReferenceCountUtil;
 
-public class HttpProxyServerHandle extends ChannelInboundHandlerAdapter {
+public class BabagiloProxyHandler extends ChannelInboundHandlerAdapter {
 
 	// See
 	// https://www.cisco.com/c/en/us/support/docs/security-vpn/secure-socket-layer-ssl/116181-technote-product-00.html
-	private static final byte SSL_HANDSHAKE = 22;
+	public static final byte SSL_HANDSHAKE = 22;
 
 	private ChannelFuture forwardChannelFuture;
 	private String origin_host;
 	private int origin_port;
 	private boolean isSsl = false;
 	private int status = 0;
-	private BabagiloProxyConfig serverConfig;
+
 	private ProxyConfig proxyConfig;
 	private HttpProxyInterceptInitializer interceptInitializer;
 	private HttpProxyInterceptPipeline interceptPipeline;
@@ -60,9 +65,21 @@ public class HttpProxyServerHandle extends ChannelInboundHandlerAdapter {
 	private List requestList;
 	private boolean isConnect;
 
-	public BabagiloProxyConfig getServerConfig() {
-		return serverConfig;
-	}
+	private ProxyMode proxyMode;
+
+	private EventLoopGroup forwardGroup;
+
+	private PrivateKey serverPrivateKey;
+
+	private String issuer;
+
+	private PrivateKey caPriKey;
+
+	private Date caNotBefore;
+
+	private Date caNotAfter;
+
+	private PublicKey serverPubKey;
 
 	public HttpProxyInterceptPipeline getInterceptPipeline() {
 		return interceptPipeline;
@@ -72,12 +89,41 @@ public class HttpProxyServerHandle extends ChannelInboundHandlerAdapter {
 		return exceptionHandle;
 	}
 
-	public HttpProxyServerHandle(BabagiloProxyConfig serverConfig, HttpProxyInterceptInitializer interceptInitializer,
-			ProxyConfig proxyConfig, HttpProxyExceptionHandle exceptionHandle) {
-		this.serverConfig = serverConfig;
+	/**
+	 * Constructor for INTERCEPT_MODE
+	 * 
+	 * @param forwardGroup
+	 * @param serverConfig
+	 * @param interceptInitializer
+	 * @param proxyConfig
+	 * @param exceptionHandle
+	 */
+	public BabagiloProxyHandler(EventLoopGroup forwardGroup, 
+			HttpProxyInterceptInitializer interceptInitializer, ProxyConfig proxyConfig,
+			HttpProxyExceptionHandle exceptionHandle, PrivateKey serverPrivateKey, String issuer, PrivateKey caPriKey,
+			Date caNotBefore, Date caNotAfter, PublicKey serverPubKey) {
+		this.forwardGroup = forwardGroup;
+
 		this.proxyConfig = proxyConfig;
 		this.interceptInitializer = interceptInitializer;
 		this.exceptionHandle = exceptionHandle;
+		this.proxyMode = ProxyMode.INTERCEPT;
+		this.serverPrivateKey = serverPrivateKey;
+		this.issuer = issuer;
+		this.caPriKey=caPriKey;
+		this.caNotBefore = caNotBefore;
+		this.caNotAfter = caNotAfter;
+		this.serverPubKey = serverPubKey;
+	}
+
+	/**
+	 * Constructor for TUNNEL_MODE
+	 * 
+	 * @param forwardGroup
+	 */
+	public BabagiloProxyHandler(EventLoopGroup forwardGroup) {
+		this.forwardGroup = forwardGroup;
+		this.proxyMode = ProxyMode.TUNNEL;
 	}
 
 	@Override
@@ -150,15 +196,16 @@ public class HttpProxyServerHandle extends ChannelInboundHandlerAdapter {
 			// class io.netty.buffer.PooledUnsafeDirectByteBuf
 			// System.out.println("122: " + msg.getClass());
 
-			if (serverConfig.isManInTheMiddleMode()) {
+			if (proxyMode == ProxyMode.INTERCEPT) {
 				ByteBuf byteBuf = (ByteBuf) msg;
 				if (byteBuf.getByte(0) == SSL_HANDSHAKE) {
 					isSsl = true;
 					int proxy_port = ((InetSocketAddress) ctx.channel().localAddress()).getPort();
-					SslContext sslCtx = SslContextBuilder.forServer(serverConfig.getServerPrivateKey(),
-							CertPool.getCert(proxy_port, this.origin_host, serverConfig)).build();
+					SslContext sslCtx = SslContextBuilder.forServer(serverPrivateKey,
+							CertPool.getCert(proxy_port, this.origin_host,  issuer,  caPriKey,
+									caNotBefore, caNotAfter, serverPubKey)).build();
 
-//          System.out.println("164: " + ctx.pipeline());
+					System.out.println("164: " + ctx.pipeline());
 //          164: DefaultChannelPipeline{(serverHandle = com.github.monkeywie.proxyee.handler.HttpProxyServerHandle)}
 //          
 					ctx.pipeline().addFirst("httpCodec", new HttpServerCodec());
@@ -175,7 +222,8 @@ public class HttpProxyServerHandle extends ChannelInboundHandlerAdapter {
 	private static boolean isAuthenticated(String proxy_Authorization) {
 		// TODO Further coding needed
 		// liyong/abcd
-		return "Basic bGl5b25nOmFiY2Q=".equals(proxy_Authorization);
+//		return "Basic bGl5b25nOmFiY2Q=".equals(proxy_Authorization);
+		return true;
 	}
 
 	@Override
@@ -207,11 +255,11 @@ public class HttpProxyServerHandle extends ChannelInboundHandlerAdapter {
 			 * 例如：https://cdn.mdn.mozilla.net/static/img/favicon32.7f3da72dcea1.png
 			 */
 			RequestProto requestProto = new RequestProto(origin_host, origin_port, isSsl);
-			ChannelInitializer channelInitializer = isHttp
+			ChannelInitializer<Channel> channelInitializer = isHttp
 					? new HttpProxyInitializer(channel, requestProto, proxyHandler)
 					: new TunnelProxyInitializer(channel, proxyHandler);
 			Bootstrap clientBootstrap = new Bootstrap();
-			clientBootstrap.group(serverConfig.getProxyLoopGroup()) // 注册线程池
+			clientBootstrap.group(forwardGroup) // 注册线程池
 					.channel(NioSocketChannel.class) // 使用NioSocketChannel来作为连接用的channel类
 					.handler(channelInitializer);
 			if (proxyConfig != null) {
