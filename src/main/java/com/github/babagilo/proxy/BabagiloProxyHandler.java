@@ -8,6 +8,7 @@ import java.util.Date;
 import java.util.LinkedList;
 import java.util.List;
 
+import com.github.babagilo.auth.Authenticator;
 import com.github.monkeywie.proxyee.crt.CertPool;
 import com.github.monkeywie.proxyee.exception.HttpProxyExceptionHandle;
 import com.github.monkeywie.proxyee.handler.HttpProxyInitializer;
@@ -28,8 +29,8 @@ import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
-import io.netty.channel.EventLoopGroup;
-import io.netty.channel.socket.nio.NioSocketChannel;
+import io.netty.channel.EventLoop;
+import io.netty.channel.socket.SocketChannel;
 import io.netty.handler.codec.http.DefaultFullHttpResponse;
 import io.netty.handler.codec.http.HttpContent;
 import io.netty.handler.codec.http.HttpHeaderNames;
@@ -48,8 +49,8 @@ import io.netty.util.ReferenceCountUtil;
 
 public class BabagiloProxyHandler extends ChannelInboundHandlerAdapter {
 
-	// See
-	// https://www.cisco.com/c/en/us/support/docs/security-vpn/secure-socket-layer-ssl/116181-technote-product-00.html
+	// See Appendix B.  Protocol Data Structures and Constant Values
+	// https://tools.ietf.org/html/rfc8446
 	public static final byte SSL_HANDSHAKE = 22;
 
 	private ChannelFuture forwardChannelFuture;
@@ -67,7 +68,7 @@ public class BabagiloProxyHandler extends ChannelInboundHandlerAdapter {
 
 	private ProxyMode proxyMode;
 
-	private EventLoopGroup forwardGroup;
+	private EventLoop el;
 
 	private PrivateKey serverPrivateKey;
 
@@ -81,6 +82,10 @@ public class BabagiloProxyHandler extends ChannelInboundHandlerAdapter {
 
 	private PublicKey serverPubKey;
 
+	private Class<? extends SocketChannel> socketChannelClass;
+
+	private Authenticator authenticator;
+
 	public HttpProxyInterceptPipeline getInterceptPipeline() {
 		return interceptPipeline;
 	}
@@ -88,7 +93,20 @@ public class BabagiloProxyHandler extends ChannelInboundHandlerAdapter {
 	public HttpProxyExceptionHandle getExceptionHandle() {
 		return exceptionHandle;
 	}
-
+	
+	/**
+	 * Constructor for TUNNEL_MODE
+	 * 
+	 * @param el
+	 * @param socketChannelClass
+	 */
+	public BabagiloProxyHandler(EventLoop el, Class<? extends SocketChannel> socketChannelClass, Authenticator authenticator) {
+		this.el = el;
+		this.socketChannelClass = socketChannelClass;
+		this.authenticator = authenticator;
+		
+		this.proxyMode = ProxyMode.TUNNEL;
+	}
 	/**
 	 * Constructor for INTERCEPT_MODE
 	 * 
@@ -98,33 +116,28 @@ public class BabagiloProxyHandler extends ChannelInboundHandlerAdapter {
 	 * @param proxyConfig
 	 * @param exceptionHandle
 	 */
-	public BabagiloProxyHandler(EventLoopGroup forwardGroup, 
-			HttpProxyInterceptInitializer interceptInitializer, ProxyConfig proxyConfig,
+	public BabagiloProxyHandler(EventLoop forwardGroup, Class<? extends SocketChannel> socketChannelClass,
+			Authenticator authenticator,HttpProxyInterceptInitializer interceptInitializer, ProxyConfig proxyConfig,
 			HttpProxyExceptionHandle exceptionHandle, PrivateKey serverPrivateKey, String issuer, PrivateKey caPriKey,
 			Date caNotBefore, Date caNotAfter, PublicKey serverPubKey) {
-		this.forwardGroup = forwardGroup;
+		this.el = forwardGroup;
+		this.socketChannelClass = socketChannelClass;
+		this.authenticator = authenticator;
+		
+		this.proxyMode = ProxyMode.INTERCEPT;
 
 		this.proxyConfig = proxyConfig;
 		this.interceptInitializer = interceptInitializer;
 		this.exceptionHandle = exceptionHandle;
-		this.proxyMode = ProxyMode.INTERCEPT;
 		this.serverPrivateKey = serverPrivateKey;
 		this.issuer = issuer;
-		this.caPriKey=caPriKey;
+		this.caPriKey = caPriKey;
 		this.caNotBefore = caNotBefore;
 		this.caNotAfter = caNotAfter;
 		this.serverPubKey = serverPubKey;
 	}
 
-	/**
-	 * Constructor for TUNNEL_MODE
-	 * 
-	 * @param forwardGroup
-	 */
-	public BabagiloProxyHandler(EventLoopGroup forwardGroup) {
-		this.forwardGroup = forwardGroup;
-		this.proxyMode = ProxyMode.TUNNEL;
-	}
+
 
 	@Override
 	public void channelRead(final ChannelHandlerContext ctx, final Object msg) throws Exception {
@@ -161,7 +174,7 @@ public class BabagiloProxyHandler extends ChannelInboundHandlerAdapter {
 					// extract proxy username and password
 					String proxy_Authorization = httpRequest.headers().get("Proxy-Authorization");
 					HttpResponse response;
-					if (isAuthenticated(proxy_Authorization)) {
+					if (authenticator.authenticate(proxy_Authorization)) {
 						response = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1,
 								new HttpResponseStatus(200, "Connection established"));
 						ctx.writeAndFlush(response);
@@ -201,12 +214,11 @@ public class BabagiloProxyHandler extends ChannelInboundHandlerAdapter {
 				if (byteBuf.getByte(0) == SSL_HANDSHAKE) {
 					isSsl = true;
 					int proxy_port = ((InetSocketAddress) ctx.channel().localAddress()).getPort();
-					SslContext sslCtx = SslContextBuilder.forServer(serverPrivateKey,
-							CertPool.getCert(proxy_port, this.origin_host,  issuer,  caPriKey,
-									caNotBefore, caNotAfter, serverPubKey)).build();
+					SslContext sslCtx = SslContextBuilder.forServer(serverPrivateKey, CertPool.getCert(proxy_port,
+							this.origin_host, issuer, caPriKey, caNotBefore, caNotAfter, serverPubKey)).build();
 
-					System.out.println("164: " + ctx.pipeline());
-//          164: DefaultChannelPipeline{(serverHandle = com.github.monkeywie.proxyee.handler.HttpProxyServerHandle)}
+					// System.out.println("164: " + ctx.pipeline());
+//          164: DefaultChannelPipeline{(serverHandle = com.github.babagilo.proxy.BabagiloProxyHandler)}
 //          
 					ctx.pipeline().addFirst("httpCodec", new HttpServerCodec());
 					ctx.pipeline().addFirst("sslHandle", sslCtx.newHandler(ctx.alloc()));
@@ -217,13 +229,6 @@ public class BabagiloProxyHandler extends ChannelInboundHandlerAdapter {
 			}
 			handleProxyData(ctx.channel(), msg, false);
 		}
-	}
-
-	private static boolean isAuthenticated(String proxy_Authorization) {
-		// TODO Further coding needed
-		// liyong/abcd
-//		return "Basic bGl5b25nOmFiY2Q=".equals(proxy_Authorization);
-		return true;
 	}
 
 	@Override
@@ -259,9 +264,7 @@ public class BabagiloProxyHandler extends ChannelInboundHandlerAdapter {
 					? new HttpProxyInitializer(channel, requestProto, proxyHandler)
 					: new TunnelProxyInitializer(channel, proxyHandler);
 			Bootstrap clientBootstrap = new Bootstrap();
-			clientBootstrap.group(forwardGroup) // 注册线程池
-					.channel(NioSocketChannel.class) // 使用NioSocketChannel来作为连接用的channel类
-					.handler(channelInitializer);
+			clientBootstrap.group(this.el).channel(this.socketChannelClass).handler(channelInitializer);
 			if (proxyConfig != null) {
 				// 代理服务器解析DNS和连接
 				clientBootstrap.resolver(NoopAddressResolverGroup.INSTANCE);

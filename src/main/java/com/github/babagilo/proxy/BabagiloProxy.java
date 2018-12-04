@@ -12,10 +12,11 @@ import java.security.cert.X509Certificate;
 import java.security.spec.InvalidKeySpecException;
 import java.util.Date;
 
+import com.github.babagilo.auth.Authenticator;
+import com.github.babagilo.auth.FileAuthenticator;
 import com.github.monkeywie.proxyee.crt.CertPool;
 import com.github.monkeywie.proxyee.crt.CertUtil;
 import com.github.monkeywie.proxyee.exception.HttpProxyExceptionHandle;
-
 import com.github.monkeywie.proxyee.intercept.HttpProxyInterceptInitializer;
 import com.github.monkeywie.proxyee.proxy.ProxyConfig;
 
@@ -30,9 +31,6 @@ import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.codec.http.HttpServerCodec;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
-import io.netty.handler.ssl.SslContext;
-import io.netty.handler.ssl.SslContextBuilder;
-import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 
 public class BabagiloProxy {
 	private ProxyMode proxyMode;
@@ -43,8 +41,7 @@ public class BabagiloProxy {
 
 	private EventLoopGroup bossGroup;
 	private EventLoopGroup workerGroup;
-	private EventLoopGroup forwardGroup;
-	
+
 	private PrivateKey serverPrivateKey;
 	private PrivateKey ca_private_key;
 	private PublicKey serverPubKey;
@@ -52,27 +49,44 @@ public class BabagiloProxy {
 	private Date caNotBefore;
 	private Date caNotAfter;
 
-	public BabagiloProxy() throws CertificateException, InvalidKeySpecException, NoSuchAlgorithmException, NoSuchProviderException, IOException {
+	private Authenticator authenticator = Authenticator.getSurepassAuthenticator();
+
+	/**
+	 * Usage:
+	 * java BabagiloProxy <9999> <authentication.txt>
+	 * @param args
+	 * @throws Exception
+	 */
+	public static void main(String[] args) throws Exception {
+		int port = Integer.parseInt(args[0]);
+		File authFile = new File(args[1]);
+		new BabagiloProxy().configureBasicAuthentication(authFile).run(port);
+	}
+
+	public BabagiloProxy() throws CertificateException, InvalidKeySpecException, NoSuchAlgorithmException,
+			NoSuchProviderException, IOException {
 		this(ProxyMode.TUNNEL);
 	}
 
 	/**
 	 * 
 	 * @param proxyMode - support TUNNEL or INTERCEPT
-	 * @throws IOException 
-	 * @throws NoSuchProviderException 
-	 * @throws NoSuchAlgorithmException 
-	 * @throws InvalidKeySpecException 
-	 * @throws CertificateException 
+	 * @throws IOException
+	 * @throws NoSuchProviderException
+	 * @throws NoSuchAlgorithmException
+	 * @throws InvalidKeySpecException
+	 * @throws CertificateException
 	 */
-	public BabagiloProxy(ProxyMode proxyMode) throws CertificateException, InvalidKeySpecException, NoSuchAlgorithmException, NoSuchProviderException, IOException {
+	public BabagiloProxy(ProxyMode proxyMode) throws CertificateException, InvalidKeySpecException,
+			NoSuchAlgorithmException, NoSuchProviderException, IOException {
 		setProxyMode(proxyMode);
 	}
-	
-	private void setProxyMode(ProxyMode proxyMode) throws CertificateException, InvalidKeySpecException, NoSuchAlgorithmException, IOException, NoSuchProviderException {
+
+	private void setProxyMode(ProxyMode proxyMode) throws CertificateException, InvalidKeySpecException,
+			NoSuchAlgorithmException, IOException, NoSuchProviderException {
 		this.proxyMode = proxyMode;
 		if (proxyMode == ProxyMode.INTERCEPT) {
-			
+
 			ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
 			X509Certificate caCert = CertUtil.loadCert(classLoader.getResourceAsStream("ca.crt"));
 			ca_private_key = CertUtil.loadPriKey(classLoader.getResourceAsStream("ca_private.der"));
@@ -90,9 +104,12 @@ public class BabagiloProxy {
 		}
 	}
 
-	
 	public BabagiloProxy configureBasicAuthentication(File authFile) throws IOException {
-		Authenticator fa = new FileAuthenticator(authFile);
+		if(authFile.exists()) {
+			this.authenticator = new FileAuthenticator(authFile);
+		}else {
+			System.err.println(authFile.getAbsolutePath() + " does not exists, no authentication is enforced");
+		}
 		return this;
 	}
 
@@ -115,20 +132,20 @@ public class BabagiloProxy {
 			NoSuchAlgorithmException, NoSuchProviderException, IOException {
 		bossGroup = new NioEventLoopGroup(1);
 		workerGroup = new NioEventLoopGroup();
-		forwardGroup = new NioEventLoopGroup();
+
 		try {
 			ServerBootstrap b = new ServerBootstrap();
 			b.group(bossGroup, workerGroup).channel(NioServerSocketChannel.class).option(ChannelOption.SO_BACKLOG, 100)
-					//.handler(new LoggingHandler(LogLevel.INFO))
+					.handler(new LoggingHandler(LogLevel.INFO))
 					.childHandler(new ChannelInitializer<SocketChannel>() {
 
 						@Override
 						protected void initChannel(SocketChannel ch) throws Exception {
 							BabagiloProxyHandler serverHandler = proxyMode == ProxyMode.TUNNEL
-									? new BabagiloProxyHandler(forwardGroup)
-									: new BabagiloProxyHandler(forwardGroup, proxyInterceptInitializer,
-											proxyConfig, httpProxyExceptionHandle,  serverPrivateKey,  issuer,  ca_private_key,
-											 caNotBefore,  caNotAfter,  serverPubKey);
+									? new BabagiloProxyHandler(ch.eventLoop(), ch.getClass(), authenticator)
+									: new BabagiloProxyHandler(ch.eventLoop(), ch.getClass(), authenticator, proxyInterceptInitializer,
+											proxyConfig, httpProxyExceptionHandle, serverPrivateKey, issuer,
+											ca_private_key, caNotBefore, caNotAfter, serverPubKey);
 
 							ch.pipeline().addLast("httpCodec", new HttpServerCodec());
 							ch.pipeline().addLast("serverHandle", serverHandler);
@@ -137,18 +154,19 @@ public class BabagiloProxy {
 			// Start the server
 			ChannelFuture f = b.bind(port).sync();
 			// Wait until the server socket is closed
-			//System.err.format("BabagiloProxy is listening at localhost:%d; Mode: %s%n", port, this.proxyMode);
+			// System.err.format("BabagiloProxy is listening at localhost:%d; Mode: %s%n",
+			// port, this.proxyMode);
 			f.channel().closeFuture().sync();
-			
+
 		} finally {
+			System.out.println("137 Gracefully shutdown");
 			bossGroup.shutdownGracefully();
 			workerGroup.shutdownGracefully();
-			forwardGroup.shutdownGracefully();
 		}
 	}
 
 	public void close() {
-		forwardGroup.shutdownGracefully();
+		System.out.println("Gracefully shutdown");
 		bossGroup.shutdownGracefully();
 		workerGroup.shutdownGracefully();
 		CertPool.clear();
