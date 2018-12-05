@@ -1,0 +1,4 @@
+Client1, https://www1.mom.gov.sg/category1/*
+Client2, https://www1.mom.gov.sg/category2/*
+Client1, https://www2.mom.gov.sg/category3/*
+Client3, https://www2.mom.gov.sg/category1/*

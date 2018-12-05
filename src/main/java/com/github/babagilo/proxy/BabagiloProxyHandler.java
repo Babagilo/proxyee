@@ -7,8 +7,10 @@ import java.security.PublicKey;
 import java.util.Date;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.logging.Logger;
 
 import com.github.babagilo.auth.Authenticator;
+import com.github.babagilo.auth.Authorizer;
 import com.github.monkeywie.proxyee.crt.CertPool;
 import com.github.monkeywie.proxyee.exception.HttpProxyExceptionHandle;
 import com.github.monkeywie.proxyee.handler.HttpProxyInitializer;
@@ -48,7 +50,7 @@ import io.netty.resolver.NoopAddressResolverGroup;
 import io.netty.util.ReferenceCountUtil;
 
 public class BabagiloProxyHandler extends ChannelInboundHandlerAdapter {
-
+	Logger logger = Logger.getLogger(BabagiloProxyHandler.class.getName());
 	// See Appendix B.  Protocol Data Structures and Constant Values
 	// https://tools.ietf.org/html/rfc8446
 	public static final byte SSL_HANDSHAKE = 22;
@@ -86,6 +88,8 @@ public class BabagiloProxyHandler extends ChannelInboundHandlerAdapter {
 
 	private Authenticator authenticator;
 
+	private Authorizer authorizer;
+
 	public HttpProxyInterceptPipeline getInterceptPipeline() {
 		return interceptPipeline;
 	}
@@ -111,18 +115,20 @@ public class BabagiloProxyHandler extends ChannelInboundHandlerAdapter {
 	 * Constructor for INTERCEPT_MODE
 	 * 
 	 * @param forwardGroup
+	 * @param authorizer 
 	 * @param serverConfig
 	 * @param interceptInitializer
 	 * @param proxyConfig
 	 * @param exceptionHandle
 	 */
 	public BabagiloProxyHandler(EventLoop forwardGroup, Class<? extends SocketChannel> socketChannelClass,
-			Authenticator authenticator,HttpProxyInterceptInitializer interceptInitializer, ProxyConfig proxyConfig,
+			Authenticator authenticator,Authorizer authorizer, HttpProxyInterceptInitializer interceptInitializer, ProxyConfig proxyConfig,
 			HttpProxyExceptionHandle exceptionHandle, PrivateKey serverPrivateKey, String issuer, PrivateKey caPriKey,
 			Date caNotBefore, Date caNotAfter, PublicKey serverPubKey) {
 		this.el = forwardGroup;
 		this.socketChannelClass = socketChannelClass;
 		this.authenticator = authenticator;
+		this.authorizer = authorizer;
 		
 		this.proxyMode = ProxyMode.INTERCEPT;
 
@@ -233,6 +239,7 @@ public class BabagiloProxyHandler extends ChannelInboundHandlerAdapter {
 
 	@Override
 	public void channelUnregistered(ChannelHandlerContext ctx) throws Exception {
+		System.out.println(this + " channel is unregistered");
 		if (forwardChannelFuture != null) {
 			forwardChannelFuture.channel().close();
 		}
@@ -244,7 +251,9 @@ public class BabagiloProxyHandler extends ChannelInboundHandlerAdapter {
 		if (forwardChannelFuture != null) {
 			forwardChannelFuture.channel().close();
 		}
+		logger.fine("254 " + ctx.channel());
 		ctx.channel().close();
+		logger.fine("256 " + ctx.channel());
 		exceptionHandle.beforeCatch(ctx.channel(), cause);
 	}
 
@@ -264,13 +273,15 @@ public class BabagiloProxyHandler extends ChannelInboundHandlerAdapter {
 					? new HttpProxyInitializer(channel, requestProto, proxyHandler)
 					: new TunnelProxyInitializer(channel, proxyHandler);
 			Bootstrap clientBootstrap = new Bootstrap();
-			clientBootstrap.group(this.el).channel(this.socketChannelClass).handler(channelInitializer);
+			clientBootstrap.group(this.el).channel(this.socketChannelClass)
+			.handler(channelInitializer);
 			if (proxyConfig != null) {
 				// 代理服务器解析DNS和连接
 				clientBootstrap.resolver(NoopAddressResolverGroup.INSTANCE);
 			}
 			requestList = new LinkedList();
 			forwardChannelFuture = clientBootstrap.connect(origin_host, origin_port);
+			logger.fine(280 + " " + forwardChannelFuture + " is created on " + this);
 			forwardChannelFuture.addListener((ChannelFutureListener) future -> {
 				if (future.isSuccess()) {
 					future.channel().writeAndFlush(msg);

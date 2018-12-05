@@ -17,7 +17,7 @@ public class InterceptResponseContentHttpProxyServer {
 
   public static void main(String[] args) throws Exception {
 
-    new BabagiloProxy(ProxyMode.INTERCEPT)
+    new BabagiloProxy()
         .proxyInterceptInitializer(new HttpProxyInterceptInitializer() {
           @Override
           public void init(HttpProxyInterceptPipeline pipeline) {
