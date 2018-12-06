@@ -11,7 +11,6 @@ import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.security.spec.InvalidKeySpecException;
 import java.util.Date;
-import java.util.logging.LogManager;
 
 import com.github.babagilo.auth.Authenticator;
 import com.github.babagilo.auth.Authorizer;
@@ -19,7 +18,6 @@ import com.github.babagilo.auth.FileAuthenticator;
 import com.github.babagilo.auth.FileAuthorizer;
 import com.github.monkeywie.proxyee.crt.CertPool;
 import com.github.monkeywie.proxyee.crt.CertUtil;
-import com.github.monkeywie.proxyee.exception.HttpProxyExceptionHandle;
 import com.github.monkeywie.proxyee.intercept.HttpProxyInterceptInitializer;
 import com.github.monkeywie.proxyee.proxy.ProxyConfig;
 
@@ -32,14 +30,13 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.codec.http.HttpServerCodec;
-import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 
 public class BabagiloProxy {
 	private ProxyMode proxyMode = ProxyMode.TUNNEL;
 
 	private HttpProxyInterceptInitializer proxyInterceptInitializer;
-	private HttpProxyExceptionHandle httpProxyExceptionHandle;
+
 	private ProxyConfig proxyConfig;
 
 	private EventLoopGroup bossGroup;
@@ -116,10 +113,6 @@ public class BabagiloProxy {
 		return this;
 	}
 
-	public BabagiloProxy httpProxyExceptionHandle(HttpProxyExceptionHandle httpProxyExceptionHandle) {
-		this.httpProxyExceptionHandle = httpProxyExceptionHandle;
-		return this;
-	}
 
 	public BabagiloProxy proxyConfig(ProxyConfig proxyConfig) {
 		this.proxyConfig = proxyConfig;
@@ -142,7 +135,7 @@ public class BabagiloProxy {
 							BabagiloProxyHandler serverHandler = proxyMode == ProxyMode.TUNNEL
 									? new BabagiloProxyHandler(ch.eventLoop(), ch.getClass(), authenticator)
 									: new BabagiloProxyHandler(ch.eventLoop(), ch.getClass(), authenticator, authorizer,
-											proxyInterceptInitializer, proxyConfig, httpProxyExceptionHandle,
+											proxyInterceptInitializer, proxyConfig, 
 											serverPrivateKey, issuer, ca_private_key, caNotBefore, caNotAfter,
 											serverPubKey);
 

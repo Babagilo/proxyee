@@ -7,12 +7,13 @@ import java.security.PublicKey;
 import java.util.Date;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import com.github.babagilo.auth.Authenticator;
 import com.github.babagilo.auth.Authorizer;
 import com.github.monkeywie.proxyee.crt.CertPool;
-import com.github.monkeywie.proxyee.exception.HttpProxyExceptionHandle;
+
 import com.github.monkeywie.proxyee.handler.HttpProxyInitializer;
 import com.github.monkeywie.proxyee.handler.TunnelProxyInitializer;
 import com.github.monkeywie.proxyee.intercept.HttpProxyIntercept;
@@ -64,7 +65,7 @@ public class BabagiloProxyHandler extends ChannelInboundHandlerAdapter {
 	private ProxyConfig proxyConfig;
 	private HttpProxyInterceptInitializer interceptInitializer;
 	private HttpProxyInterceptPipeline interceptPipeline;
-	private HttpProxyExceptionHandle exceptionHandle;
+
 	private List requestList;
 	private boolean isConnect;
 
@@ -94,9 +95,6 @@ public class BabagiloProxyHandler extends ChannelInboundHandlerAdapter {
 		return interceptPipeline;
 	}
 
-	public HttpProxyExceptionHandle getExceptionHandle() {
-		return exceptionHandle;
-	}
 	
 	/**
 	 * Constructor for TUNNEL_MODE
@@ -123,7 +121,7 @@ public class BabagiloProxyHandler extends ChannelInboundHandlerAdapter {
 	 */
 	public BabagiloProxyHandler(EventLoop forwardGroup, Class<? extends SocketChannel> socketChannelClass,
 			Authenticator authenticator,Authorizer authorizer, HttpProxyInterceptInitializer interceptInitializer, ProxyConfig proxyConfig,
-			HttpProxyExceptionHandle exceptionHandle, PrivateKey serverPrivateKey, String issuer, PrivateKey caPriKey,
+			PrivateKey serverPrivateKey, String issuer, PrivateKey caPriKey,
 			Date caNotBefore, Date caNotAfter, PublicKey serverPubKey) {
 		this.el = forwardGroup;
 		this.socketChannelClass = socketChannelClass;
@@ -134,7 +132,7 @@ public class BabagiloProxyHandler extends ChannelInboundHandlerAdapter {
 
 		this.proxyConfig = proxyConfig;
 		this.interceptInitializer = interceptInitializer;
-		this.exceptionHandle = exceptionHandle;
+
 		this.serverPrivateKey = serverPrivateKey;
 		this.issuer = issuer;
 		this.caPriKey = caPriKey;
@@ -251,10 +249,10 @@ public class BabagiloProxyHandler extends ChannelInboundHandlerAdapter {
 		if (forwardChannelFuture != null) {
 			forwardChannelFuture.channel().close();
 		}
-		logger.fine("254 " + ctx.channel());
+
 		ctx.channel().close();
-		logger.fine("256 " + ctx.channel());
-		exceptionHandle.beforeCatch(ctx.channel(), cause);
+
+		logger.log(Level.FINE, "Execption happening on channel "+ctx.channel(),cause);
 	}
 
 	private void handleProxyData(Channel channel, Object msg, boolean isHttp) throws Exception {

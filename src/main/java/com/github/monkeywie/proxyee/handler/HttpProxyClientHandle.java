@@ -1,6 +1,6 @@
 package com.github.monkeywie.proxyee.handler;
 
-import com.github.monkeywie.proxyee.exception.HttpProxyExceptionHandle;
+
 import com.github.monkeywie.proxyee.intercept.HttpProxyInterceptPipeline;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
@@ -8,10 +8,14 @@ import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.handler.codec.http.HttpContent;
 import io.netty.handler.codec.http.HttpResponse;
 import io.netty.util.ReferenceCountUtil;
+
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
 import com.github.babagilo.proxy.BabagiloProxyHandler;
 
 public class HttpProxyClientHandle extends ChannelInboundHandlerAdapter {
-
+	Logger logger = Logger.getLogger(BabagiloProxyHandler.class.getName());
   private Channel clientChannel;
 
   public HttpProxyClientHandle(Channel clientChannel) {
@@ -46,8 +50,6 @@ public class HttpProxyClientHandle extends ChannelInboundHandlerAdapter {
   public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
     ctx.channel().close();
     clientChannel.close();
-    HttpProxyExceptionHandle exceptionHandle = ((BabagiloProxyHandler) clientChannel.pipeline()
-        .get("serverHandle")).getExceptionHandle();
-    exceptionHandle.afterCatch(clientChannel, ctx.channel(), cause);
+    logger.log(Level.FINE, "53 Execption happening on channel "+ctx.channel(),cause);
   }
 }

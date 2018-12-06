@@ -1,18 +1,22 @@
 package com.github.monkeywie.proxyee.handler;
 
-import com.github.monkeywie.proxyee.exception.HttpProxyExceptionHandle;
+
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
 import io.netty.handler.proxy.ProxyHandler;
+
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
 import com.github.babagilo.proxy.BabagiloProxyHandler;
 
 /**
  * http代理隧道，转发原始报文
  */
 public class TunnelProxyInitializer extends ChannelInitializer<Channel> {
-
+	Logger logger = Logger.getLogger(BabagiloProxyHandler.class.getName());
 	private Channel client_proxy_channel;
 	private ProxyHandler proxyHandler;
 
@@ -39,12 +43,10 @@ public class TunnelProxyInitializer extends ChannelInitializer<Channel> {
 			}
 
 			@Override
-			public void exceptionCaught(ChannelHandlerContext ctx0, Throwable cause) throws Exception {
-				ctx0.channel().close();
+			public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
+				ctx.channel().close();
 				client_proxy_channel.close();
-				HttpProxyExceptionHandle exceptionHandle = ((BabagiloProxyHandler) client_proxy_channel.pipeline()
-						.get("serverHandle")).getExceptionHandle();
-				exceptionHandle.afterCatch(client_proxy_channel, ctx0.channel(), cause);
+				logger.log(Level.FINE, "Execption happening on channel "+ctx.channel(),cause);
 			}
 		});
 	}

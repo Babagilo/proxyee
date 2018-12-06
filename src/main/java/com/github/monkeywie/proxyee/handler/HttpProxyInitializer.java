@@ -1,10 +1,9 @@
 package com.github.monkeywie.proxyee.handler;
 
-import com.github.monkeywie.proxyee.util.ProtoUtil.RequestProto;
-
 import javax.net.ssl.SSLException;
 
-import com.github.babagilo.proxy.BabagiloProxyHandler;
+import com.github.monkeywie.proxyee.util.ProtoUtil.RequestProto;
+
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelInitializer;
 import io.netty.handler.codec.http.HttpClientCodec;
