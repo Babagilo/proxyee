@@ -21,3 +21,9 @@ hs_err_pid*
 *.iml
 
 target/
+.classpath
+.project
+.settings/org.eclipse.core.resources.prefs
+*.prefs
+.vscode/launch.json
+dependency-reduced-pom.xml
